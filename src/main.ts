@@ -1,121 +1,21 @@
-//NEED TO IMPLEMENT 
-//.env save
-//github
-//telegram bot
-//logging
-//get coins from the coins website
-//make every function actually async
-//dont make user a global variable
-
-
 import request from "request"
 import _ from "underscore"
 require('dotenv').config()
-type Problem = {
+import config from "./config"
+import { User, Problem, Submission } from "./types";
 
-    questionId: string,
-    questionFrontendId: string,
-    boundTopicId: string,
-    title: string,
-    titleSlug: string,
-    content: string,
-    translatedTitle: string,
-    translatedContent: string,
-    isPaidOnly: boolean,
-    difficulty: string,
-    likes: number,
-    dislikes: number,
-    isLiked: null,
-    similarQuestions: string,
-    contributors: string[],
-    topicTags: {}[],
-    stats: string,
-    hints: string[],
-    solution: {
-        id: string,
-        canSeeDetail: boolean,
-        paidOnly: boolean,
-        hasVideoSolution: boolean,
-        paidOnlyVideo: boolean,
-    }
-    status: string,
-    sampleTestCase: string,
-    metaData: string,
-
-
-}
-type Submission =  {
-    id: string,
-    lang: string,
-    lang_name: string,
-    time: string,
-    timestamp: number,
-    status: number,
-    status_display: string,
-    runtime: string,
-    url: string,
-    is_pending: string,
-    title: string,
-    memory: '2.1 MB',
-    code: string,
-    compare_result: string,
-    title_slug: string,
-    has_notes: boolean
-  }
-
-
-type User= {
-    login:string,
-    pass: string,
-    sessionId: string,
-    sessionCSRF: string
-}
-
-let urls = {
-    // base urls
-    base: 'https://leetcode.com',
-    graphql: 'https://leetcode.com/graphql',
-    login: 'https://leetcode.com/accounts/login/',
-    // third part login base urls. TODO facebook google
-    github_login: 'https://leetcode.com/accounts/github/login/?next=%2F',
-    facebook_login: 'https://leetcode.com/accounts/facebook/login/?next=%2F',
-    linkedin_login: 'https://leetcode.com/accounts/linkedin_oauth2/login/?next=%2F',
-    // redirect urls
-    leetcode_redirect: 'https://leetcode.com/',
-    github_tf_redirect: 'https://github.com/sessions/two-factor',
-    // simulate login urls
-    github_login_request: 'https://github.com/login',
-    github_session_request: 'https://github.com/session',
-    github_tf_session_request: 'https://github.com/sessions/two-factor',
-    linkedin_login_request: 'https://www.linkedin.com/login',
-    linkedin_session_request: 'https://www.linkedin.com/checkpoint/lg/login-submit',
-    // questions urls
-    PointsTotal: 'https://leetcode.com/points/api/total/',
-    pointHistory: 'https://leetcode.com/points/api/',
-    problems: 'https://leetcode.com/api/problems/$category/',
-    problem: 'https://leetcode.com/problems/$slug/description/',
-    test: 'https://leetcode.com/problems/$slug/interpret_solution/',
-    session: 'https://leetcode.com/session/',
-    submit: 'https://leetcode.com/problems/$slug/submit/',
-    submissions: 'https://leetcode.com/api/submissions/$slug',
-    submission: 'https://leetcode.com/submissions/detail/$id/',
-    verify: 'https://leetcode.com/submissions/detail/$id/check/',
-    favorites: 'https://leetcode.com/list/api/questions',
-    favorite_delete: 'https://leetcode.com/list/api/questions/$hash/$id',
-    plugin: 'https://raw.githubusercontent.com/leetcode-tools/leetcode-cli/master/lib/plugins/$name.js'
-}
 
 
 //Sometimes this just wont work, need to add a retry
 function linkedinLogin(user: { login: any; pass: any; }) {
-    const leetcodeUrl = urls.linkedin_login;
+    const leetcodeUrl = config.urls.linkedin_login;
     const _request = request.defaults({
         jar: true,
         headers: {
             'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/73.0.3683.86 Safari/537.36'
         }
     });
-    _request(urls.linkedin_login_request, function (e, resp, body) {
+    _request(config.urls.linkedin_login_request, function (e, resp, body) {
         if (resp.statusCode !== 200) {
             throw new Error('Get LinkedIn session failed');
         }
@@ -127,7 +27,7 @@ function linkedinLogin(user: { login: any; pass: any; }) {
             throw new Error('Get LinkedIn payload failed');
         }
         const options = {
-            url: urls.linkedin_session_request,
+            url: config.urls.linkedin_session_request,
             method: 'POST',
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded',
@@ -156,7 +56,7 @@ function linkedinLogin(user: { login: any; pass: any; }) {
             if (resp.statusCode !== 200) {
                 throw new Error('LinkedIn login failed');
             }
-            requestLeetcodeAndSave(_request, leetcodeUrl, user);
+            leetcodeLogin(_request, leetcodeUrl, user);
         });
     });
 };
@@ -165,11 +65,10 @@ function linkedinLogin(user: { login: any; pass: any; }) {
 
 
 
-function requestLeetcodeAndSave(request: request.RequestAPI<request.Request, request.CoreOptions, request.RequiredUriUrl>, leetcodeUrl: string, user: { login?: any; pass?: any; sessionId?: any; sessionCSRF?: any; }) {
+function leetcodeLogin(request: request.RequestAPI<request.Request, request.CoreOptions, request.RequiredUriUrl>, leetcodeUrl: string, user: { login?: any; pass?: any; sessionId?: any; sessionCSRF?: any; }) {
     request.get({ url: leetcodeUrl }, function (e, resp, body) {
         const redirectUri = resp.request.uri.href;
-        if (redirectUri !== urls.leetcode_redirect) {
-            console.log(resp.request)
+        if (redirectUri !== config.urls.leetcode_redirect) {
             throw new Error('Login failed ');
         }
         const cookieData = parseCookie(resp.request.headers.cookie);
@@ -177,7 +76,7 @@ function requestLeetcodeAndSave(request: request.RequestAPI<request.Request, req
         user.sessionCSRF = cookieData!.sessionCSRF;
     });
 }
-function parseCookie(cookie: string): { sessionId: string, sessionCSRF: string } | void {
+function parseCookie(cookie: string): { sessionId: string, sessionCSRF: string }{
     const SessionPattern = /LEETCODE_SESSION=(.+?)(;|$)/;
     const csrfPattern = /csrftoken=(.+?)(;|$)/;
     const reCsrfResult = csrfPattern.exec(cookie);
@@ -191,8 +90,7 @@ function parseCookie(cookie: string): { sessionId: string, sessionCSRF: string }
     };
 }
 
-// update options with user credentials
-function signOpts(opts: request.CoreOptions & request.UrlOptions, user: { sessionId: string; sessionCSRF: string; }) {
+function signOpts(opts: request.CoreOptions & request.UrlOptions, user: { sessionId: string; sessionCSRF: string; }):void {
     opts.headers!.Cookie = 'LEETCODE_SESSION=' + user.sessionId +
         ';csrftoken=' + user.sessionCSRF + ';';
     opts.headers!['X-CSRFToken'] = user.sessionCSRF;
@@ -203,15 +101,13 @@ function makeOpts(url: string): request.CoreOptions & request.UrlOptions {
     const opts: request.CoreOptions & request.UrlOptions = {
         url: url,
         headers: {},
-        //body: {},
     };
-    //if (session.isLogin())
     signOpts(opts, user);
     return opts;
 };
-async function submitProblem(submission: Submission, problem: Problem): Promise<{submission_id:number}> {
+async function submitProblem(submission: Submission, problem: Problem): Promise<{ submission_id: number }> {
     console.log('running leetcode.submitProblem');
-    const opts = makeOpts(urls.submit.replace('$slug', problem.titleSlug));
+    const opts = makeOpts(config.urls.submit.replace('$slug', problem.titleSlug));
     opts.body = {
         lang: submission.lang,
         question_id: parseInt(problem.questionId, 10),
@@ -220,12 +116,12 @@ async function submitProblem(submission: Submission, problem: Problem): Promise<
         judge_type: 'large',
     };
     opts.method = 'POST';
-    opts.headers!.Origin = urls.base;
-    opts.headers!.Referer = urls.problem.replace('$slug', problem.titleSlug);
+    opts.headers!.Origin = config.urls.base;
+    opts.headers!.Referer = config.urls.problem.replace('$slug', problem.titleSlug);
     opts.json = true;
 
     try {
-        const body = await new Promise<{submission_id:number,error?:string}>((resolve, reject) => {
+        const body = await new Promise<{ submission_id: number, error?: string }>((resolve, reject) => {
             request(opts, (error, response, body) => {
                 if (error) {
                     console.log(response);
@@ -258,11 +154,11 @@ async function submitProblem(submission: Submission, problem: Problem): Promise<
     }
 }
 
-async function getSubmissions(problem: Problem): Promise<Submission|null> {
+async function getSubmissions(problem: Problem): Promise<Submission | null> {
     console.log('running leetcode.getSubmissions for problem %s', problem.titleSlug);
-    const opts = makeOpts(urls.submissions.replace('$slug', problem.titleSlug));
-    opts.headers!.Referer = urls.problem.replace('$slug', problem.titleSlug);
-    
+    const opts = makeOpts(config.urls.submissions.replace('$slug', problem.titleSlug));
+    opts.headers!.Referer = config.urls.problem.replace('$slug', problem.titleSlug);
+
     try {
         const body = await new Promise<string>((resolve, reject) => {
             request(opts, (error, response, body) => {
@@ -275,7 +171,7 @@ async function getSubmissions(problem: Problem): Promise<Submission|null> {
                 }
             });
         });
-        
+
         const submissions = JSON.parse(body).submissions_dump;
         for (const submission of submissions) {
             submission.id = _.last(_.compact(submission.url.split('/')));
@@ -292,9 +188,9 @@ async function getSubmissions(problem: Problem): Promise<Submission|null> {
 // Daily challenge for leetcode.com
 async function getProblemOfToday() {
     console.log('running leetcode.getProblemOfToday...');
-    const opts = makeOpts(urls.graphql);
-    opts.headers!.Origin = urls.base;
-    opts.headers!.Referer = urls.base;
+    const opts = makeOpts(config.urls.graphql);
+    opts.headers!.Origin = config.urls.base;
+    opts.headers!.Referer = config.urls.base;
 
     opts.json = true;
     opts.body = {
@@ -384,7 +280,7 @@ async function getProblemOfToday() {
             });
         });
 
-        
+
         console.log('Daily problem:', DailyQuestion.titleSlug);
         return DailyQuestion;
     } catch (error) {
@@ -393,11 +289,11 @@ async function getProblemOfToday() {
     }
 }
 
-async function getTotalPoints(user:User):Promise<number> {
+async function getTotalPoints(user: User): Promise<number> {
     console.log('running leetcode.getTotalPoints...');
-    const opts = makeOpts(urls.PointsTotal);
-    
-    
+    const opts = makeOpts(config.urls.PointsTotal);
+
+
     try {
         const body = await new Promise<any>((resolve, reject) => {
             request(opts, (error, response, body) => {
@@ -406,15 +302,15 @@ async function getTotalPoints(user:User):Promise<number> {
                     console.log(error)
                     reject(error);
                 } else {
-                    console.log(body);
-                    resolve(body);
+                    
+                    resolve(JSON.parse(body));
                 }
             });
         });
-        
-        
 
-        return body.points; 
+
+
+        return body.points;
     } catch (error) {
         console.error('Error getting total Points', error);
         throw error;
@@ -422,11 +318,11 @@ async function getTotalPoints(user:User):Promise<number> {
 
 }
 
-async function getPointHistory(user:User):Promise<{score:number,despriction:string, date:string}[]>{
+async function getPointHistory(user: User): Promise<{ score: number, despriction: string, date: string }[]> {
     console.log('running leetcode.getPointHistory...');
-    const opts = makeOpts(urls.pointHistory);
-    
-    
+    const opts = makeOpts(config.urls.pointHistory);
+
+
     try {
         const body = await new Promise<any>((resolve, reject) => {
             request(opts, (error, response, body) => {
@@ -435,23 +331,21 @@ async function getPointHistory(user:User):Promise<{score:number,despriction:stri
                     console.log(error)
                     reject(error);
                 } else {
-                    resolve(body);
+                    resolve(JSON.parse(body));
                 }
             });
         });
-        
-        console.log(body)
-        console.log(JSON.parse(body).scores)
-        return body.scores; 
+
+        return body.scores;
     } catch (error) {
-        console.error('Error getting pointHisory', error);
+        console.error('Error getting pointHistory', error);
         throw error;
     }
 }
 
 
 
-let user:User = {
+let user: User = {
     login: process.env.LINKEDIN_USERNAME!,
     pass: process.env.LINKEDIN_PASSWORD!,
     sessionId: "",
@@ -467,8 +361,8 @@ setTimeout(async () => {
     // if(submission === null) {return;}
     // console.log(await submitProblem(submission, problem));
     console.log(user)
-   console.log(((await getPointHistory(user)).reduce((a,b)=>a+b.score,0)));
-   
+    console.log(await getTotalPoints(user));
 
-    
+
+
 }, 10000);
