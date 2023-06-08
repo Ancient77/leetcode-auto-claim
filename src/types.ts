@@ -51,8 +51,6 @@ type Submission =  {
 
 
 type User= {
-    login:string,
-    pass: string,
     sessionId: string,
     sessionCSRF: string
 }

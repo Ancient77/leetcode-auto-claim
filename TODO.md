@@ -10,6 +10,7 @@
 - [ ] Add caching
 - [ ] Enhance the console interface with attractive visuals
 - [ ] Dockerize the application
+- [ ] Remove callbacks and only use async/awi
 
 ### Done ✓
 
