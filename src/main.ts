@@ -4,7 +4,9 @@ import fs from "fs"
 require('dotenv').config()
 import config from "./config"
 import { User, Problem, Submission } from "./types";
-
+import { retryPromise } from "./helper"
+import { Color, ConsoleTable } from "./console"
+let consoleTable = new ConsoleTable();
 
 
 //Sometimes this just wont work, need to add a retry
@@ -108,7 +110,7 @@ function makeOpts(url: string, user?: User): request.CoreOptions & request.UrlOp
     return opts;
 };
 async function submitProblem(submission: Submission, problem: Problem, user: User): Promise<{ submission_id: number }> {
-    console.log('running leetcode.submitProblem');
+    consoleTable.updateStatus(Color.yellow, 'running leetcode.submitProblem');
     const opts = makeOpts(config.urls.submit.replace('$slug', problem.titleSlug), user);
     opts.body = {
         lang: submission.lang,
@@ -126,70 +128,71 @@ async function submitProblem(submission: Submission, problem: Problem, user: Use
         const body = await new Promise<{ submission_id: number, error?: string }>((resolve, reject) => {
             request(opts, (error, response, body) => {
                 if (error) {
-                    console.log(response);
-                    console.log(error);
+                    consoleTable.updateError(Color.red, error.message)
                     reject(error);
                 } else {
                     resolve(body);
                 }
             });
         });
-        console.log(body);
+
         if (body.error) {
             if (!body.error.includes('too soon')) {
                 throw new Error(body.error);
             }
 
             // hit 'run code too soon' error, have to wait a bit
-            console.log(body.error);
-
             // linear wait
-            console.log('Will retry after %d seconds...', 5);
+            consoleTable.updateStatus(Color.yellow, 'hit \'run code too soon\' error, have to wait a bit');
             await new Promise(resolve => setTimeout(resolve, 5 * 1000));
             return submitProblem(submission, problem, user);
         }
 
         return body;
     } catch (error) {
-        console.error('Error submitting problem:', error);
         throw error;
     }
 }
 
-async function getSubmissions(problem: Problem, user: User): Promise<Submission> {
-    console.log('running leetcode.getSubmissions for problem %s', problem.titleSlug);
+/**
+ * Retrieves the latest submission for a given problem and user.
+ * @param problem The problem to retrieve the submission for.
+ * @param user The user to retrieve the submission for.
+ * @returns The latest submission for the given problem and user.
+ * @throws An error if no submissions are found.
+ */
+async function getLatestSubmission(problem: Problem, user: User): Promise<Submission> {
+    consoleTable.updateStatus(Color.yellow, `Retrieving latest submission for problem ${problem.titleSlug}`);
+
     const opts = makeOpts(config.urls.submissions.replace('$slug', problem.titleSlug), user);
     opts.headers!.Referer = config.urls.problem.replace('$slug', problem.titleSlug);
 
-    try {
-        const body = await new Promise<string>((resolve, reject) => {
-            request(opts, (error, response, body) => {
-                if (error) {
-                    console.log(response);
-                    console.log(error)
-                    reject(error);
-                } else {
-                    resolve(body);
-                }
-            });
+
+    const body = await new Promise<string>((resolve, reject) => {
+        request(opts, (error, response, body) => {
+            if (error) {
+                reject(error);
+            } else {
+                resolve(body);
+            }
         });
+    });
 
-        const submissions = JSON.parse(body).submissions_dump;
-        for (const submission of submissions) {
-            submission.id = _.last(_.compact(submission.url.split('/')));
-        }
-
-        return submissions[0]; // is this the latest submission?
-    } catch (error) {
-        console.error('Error getting submissions:', error);
-        throw error;
+    const submissions = JSON.parse(body).submissions_dump;
+    if (submissions.length === 0) {
+        throw new Error('No submissions found');
     }
 
+    for (const submission of submissions) {
+        submission.id = _.last(_.compact(submission.url.split('/')));
+    }
+
+    return submissions[0]; // latest submission
 };
 
 // Daily challenge for leetcode.com
-async function getProblemOfToday():Promise<Problem> {
-    console.log('running leetcode.getProblemOfToday...');
+async function getProblemOfToday(): Promise<Problem> {
+    consoleTable.updateStatus(Color.yellow, 'getting Problem Of the Day');
     const opts = makeOpts(config.urls.graphql);
     opts.headers!.Origin = config.urls.base;
     opts.headers!.Referer = config.urls.base;
@@ -281,25 +284,19 @@ async function getProblemOfToday():Promise<Problem> {
         });
 
 
-        console.log('Daily problem:', DailyQuestion.titleSlug);
+        //console.log('Daily problem:', DailyQuestion.titleSlug);
         return DailyQuestion;
     } catch (error) {
-        console.error('Error getting daily problem:', error);
         throw error;
     }
 }
 
 async function getTotalPoints(user: User): Promise<number> {
-    console.log('running leetcode.getTotalPoints...');
     const opts = makeOpts(config.urls.PointsTotal, user);
-
-
     try {
         const body = await new Promise<any>((resolve, reject) => {
             request(opts, (error, response, body) => {
                 if (error) {
-                    console.log(response);
-                    console.log(error)
                     reject(error);
                 } else {
 
@@ -319,7 +316,6 @@ async function getTotalPoints(user: User): Promise<number> {
 }
 
 async function getPointHistory(user: User): Promise<{ score: number, despriction: string, date: string }[]> {
-    console.log('running leetcode.getPointHistory...');
     const opts = makeOpts(config.urls.pointHistory, user);
 
 
@@ -327,8 +323,6 @@ async function getPointHistory(user: User): Promise<{ score: number, despriction
         const body = await new Promise<any>((resolve, reject) => {
             request(opts, (error, response, body) => {
                 if (error) {
-                    console.log(response);
-                    console.log(error)
                     reject(error);
                 } else {
                     resolve(JSON.parse(body));
@@ -338,44 +332,67 @@ async function getPointHistory(user: User): Promise<{ score: number, despriction
 
         return body.scores;
     } catch (error) {
-        console.error('Error getting pointHistory', error);
         throw error;
     }
 }
-function getSavedUser():User | null{
-        try {
-           return JSON.parse(fs.readFileSync('../cookies.json','utf-8'));
-        } catch (error) {
-            console.log('No saved user found')
-            return null
-        }
-    
+function getSavedUser(): User | null {
+    try {
+        return JSON.parse(fs.readFileSync('./cookies.json', 'utf-8'));
+    } catch (error) {
+        console.log('No saved user found')
+        return null
+    }
+
 }
-function saveUser(user:User):void{
-    fs.writeFileSync('../cookies.json',JSON.stringify(user));
+function saveUser(user: User): void {
+    fs.writeFileSync('./cookies.json', JSON.stringify(user));
 }
-function isLoginSaved():boolean{
-    if(process.env.LINKEDIN_USERNAME && process.env.LINKEDIN_PASSWORD ){
+function isLoginSaved(): boolean {
+    if (process.env.LINKEDIN_USERNAME && process.env.LINKEDIN_PASSWORD) {
         return true;
-    }else{
+    } else {
         return false
     }
 }
 
+async function DailyProblemCheckAndSubmit(user: User) {
+    try {
+        const problem = await getProblemOfToday();
+        const submission = await getLatestSubmission(problem, user).catch((err: any) => {
+            throw new Error(`No submission found for problem ${problem.titleSlug}`);
+        });
+        if (!submission) {
+            return;
+        }
+        const result = await submitProblem(submission, problem, user);
+
+    } catch (error: unknown) {
+        consoleTable.updateError(Color.red, `Error: ${(error as Error).message}`);
+    }
+}
 
 
 
 
-
-setTimeout(async () => {
-    // let problem = await getProblemOfToday();
-    // let submission = await getSubmissions(problem);
-    // if(submission === null) {return;}
-    // console.log(await submitProblem(submission, problem));
-    
-    let user = await linkedinLogin(process.env.LINKEDIN_USERNAME!, process.env.LINKEDIN_PASSWORD!);
-    console.log(await getTotalPoints(user));
-
-
-
-}, 1000);
+(async () => {
+    let user: User;
+    //does not check if user is valid
+    if (getSavedUser() != null) {
+        user = getSavedUser()!;
+    } else {
+        if (isLoginSaved()) {
+            user = await retryPromise(() => linkedinLogin(process.env.LINKEDIN_USERNAME!, process.env.LINKEDIN_PASSWORD!), 5, 5000);
+            saveUser(user);
+        } else {
+            throw new Error('Please Add your linkedin username and password to env variables')
+        }
+    }
+    consoleTable.updatePoints(Color.green, await getTotalPoints(user));
+    await DailyProblemCheckAndSubmit(user);
+    consoleTable.updateStatus(Color.green, `Waiting for next day`);
+    setInterval(async () => {
+        consoleTable.updatePoints(Color.green, await getTotalPoints(user));
+        await DailyProblemCheckAndSubmit(user);
+        consoleTable.updateStatus(Color.green, `Waiting for next day`);
+    }, 24 * 60 * 60 * 1000);
+})();

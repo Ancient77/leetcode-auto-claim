@@ -7,9 +7,7 @@
 - [ ] Implement logging functionality
 - [ ] Display the historical count of your coins
 - [ ] Create a login system
-- [ ] Add caching
 - [ ] Dockerize the application
-- [ ] Remove callbacks and only use async/await
 
 
 ### Done ✓
@@ -17,3 +15,5 @@
 - [x] Enable login with LinkedIn
 - [x] Implement basic functionality
 - [x] Enhance the console interface with "attractive" visuals
+- [x] Remove callbacks and only use async/await
+- [x] Add caching
