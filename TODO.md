@@ -8,7 +8,6 @@
 - [ ] Display the historical count of your coins
 - [ ] Create a login system
 - [ ] Add caching
-- [ ] Enhance the console interface with attractive visuals
 - [ ] Dockerize the application
 - [ ] Remove callbacks and only use async/await
 
@@ -17,3 +16,4 @@
 
 - [x] Enable login with LinkedIn
 - [x] Implement basic functionality
+- [x] Enhance the console interface with "attractive" visuals
